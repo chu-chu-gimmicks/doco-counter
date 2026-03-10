@@ -1,64 +1,58 @@
-﻿using UdonSharp;
+using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
 using VRC.Udon;
 
-namespace dokoniru_counter
+namespace ChuChuGimmicks.DokoCounter
 {
+    [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class Manager : UdonSharpBehaviour
     {
-        [Header("設置したコライダーをD&D（使わない枠は削除）")]
         [SerializeField] private GameObject[] colliders;
-        [Header("人数情報を表示させたいボードをD&D（使わない枠は削除）")]
         [SerializeField] private Board[] boards;
 
-        // プレイヤーの情報を格納するための配列
-        VRCPlayerApi[] players;
+        private const int MAX_COUNT = 100;
+        private const float INTERVAL = 2.0f;
+        private const float HEIGHT_OFFSET = 0.1f;
 
-        private int[] counts;
+        VRCPlayerApi[] players = new VRCPlayerApi[MAX_COUNT];
+        private int[] counts = null;
+        private bool isPending = false;
 
-        private const int maxCount = 80;
 
-        private const int countInterval = 2;
-
-        private const float offsetHeight = 0.1f;
 
 
         private void OnEnable()
         {
+            if (isPending) { return; }
+            isPending = true;
+
             for (int i = 0; i < colliders.Length; i++)
             {
-                if (colliders[i] != null && colliders[i].activeSelf)
-                {
-                    colliders[i].SetActive(false);
-                }
+                if (!Utilities.IsValid(colliders[i])) { continue; }
+                if (!colliders[i].activeSelf) { continue; }
+
+                colliders[i].SetActive(false);
             }
 
-            PrepareDisplay();
+            PrepareBoard();
             StartCount();
         }
 
 
-        private void PrepareDisplay()
+        private void PrepareBoard()
         {
             for (int i = 0; i < boards.Length; i++)
             {
-                if (boards[i] != null)
-                {
-                    boards[i].SetName(colliders);
-                }
+                if (!Utilities.IsValid(boards[i])) { continue; }
+                boards[i].SetName(colliders);
             }
         }
 
 
         private void StartCount()
         {
-            if (players == null)
-            {
-                players = new VRCPlayerApi[maxCount];
-            }
-
-            if (counts == null)
+            if (!Utilities.IsValid(counts))
             {
                 counts = new int[colliders.Length];
             }
@@ -69,45 +63,53 @@ namespace dokoniru_counter
 
         public void UpdateCount()
         {
+            if (this.gameObject.activeInHierarchy)
+            {
+                // 次の更新を予約
+                SendCustomEventDelayedSeconds(nameof(UpdateCount), INTERVAL);
+            }
+            else
+            {
+                isPending = false;
+                return;
+            }
+
             // プレイヤーの情報を格納
             VRCPlayerApi.GetPlayers(players);
-            // インスタンス内の全プレイヤーの数を数える
-            int total = VRCPlayerApi.GetPlayerCount();
+            // プレイヤー数を格納
+            int playerCount = VRCPlayerApi.GetPlayerCount();
 
             for (int i = 0; i < colliders.Length; i++)
             {
-                if (colliders[i] == null)
+                if (!Utilities.IsValid(colliders[i]))
                 {
                     counts[i] = -1;
                     continue;
                 }
                 else
                 {
-                    int tmpCount = 0;
+                    int count = 0;
 
-                    for (int j = 0; j < total; j++)
+                    for (int j = 0; j < playerCount; j++)
                     {
-                        if (players[j] == null || !players[j].IsValid()) { continue; }
+                        if (!players[j].IsValid()) { continue; }
 
                         if (IsInCollider(colliders[i].transform, players[j]))
                         {
-                            tmpCount++;
+                            count++;
                         }
                     }
 
-                    counts[i] = tmpCount;
+                    counts[i] = count;
                 }
             }
 
+            // UIを更新
             for (int i = 0; i < boards.Length; i++)
             {
-                if (boards[i] != null)
-                {
-                    boards[i].UpdateDisplay(counts, total);
-                }
+                if (!Utilities.IsValid(boards[i])) { continue; }
+                boards[i].UpdateUI(counts, playerCount);
             }
-
-            SendCustomEventDelayedSeconds(nameof(UpdateCount), countInterval);
         }
 
 
@@ -125,7 +127,7 @@ namespace dokoniru_counter
 
             // ローカル空間でAABBチェック（y座標は少し上を基準に）
             return Mathf.Abs(localPlayerPos.x) <= colliderSize.x / 2 &&
-                   Mathf.Abs(localPlayerPos.y + offsetHeight) <= colliderSize.y / 2 &&
+                   Mathf.Abs(localPlayerPos.y + HEIGHT_OFFSET) <= colliderSize.y / 2 &&
                    Mathf.Abs(localPlayerPos.z) <= colliderSize.z / 2;
         }
     }
