@@ -9,19 +9,38 @@ namespace ChuChuGimmicks.DocoCounter
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class Manager : UdonSharpBehaviour
     {
+        [SerializeField] private bool isDebug = false;
+        private void ChuDebug(string message)
+        {
+            if (isDebug)
+            {
+                Debug.Log(message);
+            }
+        }
+
+
         [SerializeField] private GameObject[] colliders;
         [SerializeField] private Board[] boards;
 
-        private const float UPDATE_INTERVAL_SECONDS = 2.0f;
-        private const int DELAY_FRAMES = 1;
-        private const int MAX_COUNT = 160;
+        private const float COUNT_INTERVAL_SECONDS = 2.0f;
+        private const int MAX_COUNT = 100;
         private const float HEIGHT_OFFSET = 0.1f;
 
-        VRCPlayerApi[] players = new VRCPlayerApi[MAX_COUNT];
+        private bool isInitialized = false;
+        private bool isPending = false;
+
         private int[] counts = null;
         private int totalCount = 0;
-        private bool isPending = false;
-        private int currentIndex = 0;
+
+        // コライダーのワールド座標系からローカル座標系への変換用行列
+        private Matrix4x4[] colliderMatrices;
+        // コライダーの中心座標（球を用いた大まかな距離計算用）
+        private Vector3[] colliderPositions;
+        // コライダーを覆う球の半径の2乗（球を用いた大まかな距離計算用）
+        private float[] colliderRadiusSq;
+
+        VRCPlayerApi[] players = new VRCPlayerApi[MAX_COUNT];
+        private Vector3[] playerPositions = new Vector3[MAX_COUNT];
 
 
 
@@ -33,8 +52,41 @@ namespace ChuChuGimmicks.DocoCounter
 
             if (!Utilities.IsValid(colliders) || colliders.Length == 0) { return; }
 
+            if (!isInitialized)
+            {
+                InitializeOnce();
+                isInitialized = true;
+            }
+
+            CountPeriodically();
+        }
+
+
+        private void InitializeOnce()
+        {
+            if (isInitialized) { return; }
+
+            counts = new int[colliders.Length];
+
+            int colCount = colliders.Length;
+            colliderMatrices = new Matrix4x4[colCount];
+            colliderPositions = new Vector3[colCount];
+            colliderRadiusSq = new float[colCount];
+            for (int i = 0; i < colCount; i++)
+            {
+                if (!Utilities.IsValid(colliders[i])) { continue; }
+
+                Transform colTransform = colliders[i].transform;
+                colliderMatrices[i] = colTransform.worldToLocalMatrix;
+                colliderPositions[i] = colTransform.position;
+                // ピタゴラスの定理により、コライダーを覆う球の半径の2乗を算出
+                Vector3 scale = colTransform.localScale;
+                colliderRadiusSq[i] = (scale.x * scale.x + scale.y * scale.y + scale.z * scale.z) * 0.25f;
+            }
+
             for (int i = 0; i < colliders.Length; i++)
             {
+                if (isDebug) { break; }
                 if (!Utilities.IsValid(colliders[i])) { continue; }
                 if (!colliders[i].activeSelf) { continue; }
 
@@ -42,7 +94,6 @@ namespace ChuChuGimmicks.DocoCounter
             }
 
             InitializeBoard();
-            StartCountCycle();
         }
 
 
@@ -56,66 +107,54 @@ namespace ChuChuGimmicks.DocoCounter
         }
 
 
-        public void StartCountCycle()
+        public void CountPeriodically()
         {
-            if (!this.gameObject.activeInHierarchy)
+            // 非アクティブ時はカウント処理を行わず、次回分の予約もしない
+            if (this.gameObject.activeInHierarchy)
+            {
+                SendCustomEventDelayedSeconds(nameof(CountPeriodically), COUNT_INTERVAL_SECONDS);
+            }
+            else
             {
                 isPending = false;
                 return;
-            }
-
-            if (!Utilities.IsValid(counts))
-            {
-                counts = new int[colliders.Length];
             }
 
             // プレイヤー情報を更新
             VRCPlayerApi.GetPlayers(players);
             totalCount = VRCPlayerApi.GetPlayerCount();
+            for (int i = 0; i < totalCount; i++)
+            {
+                if (!Utilities.IsValid(players[i]) || !players[i].IsValid()) { continue; }
+                Vector3 pos = players[i].GetPosition();
+                pos.y += HEIGHT_OFFSET;
+                playerPositions[i] = pos;
+            }
 
-            currentIndex = 0;
+            // 各コライダー内のプレイヤー数をカウント
+            for (int i = 0; i < counts.Length; i++)
+            {
+                counts[i] = GetPlayerCount(i);
+            }
 
-            ProcessNextCollider();
+            // UIを更新
+            UpdateBoard(counts, totalCount);
         }
 
 
-        public void ProcessNextCollider()
+        private int GetPlayerCount(int cIdx)
         {
-            if (!this.gameObject.activeInHierarchy)
-            {
-                isPending = false;
-                return;
-            }
-
-            counts[currentIndex] = GetPlayerCountInCollider(currentIndex);
-            currentIndex = (currentIndex + 1) % colliders.Length;
-
-            if (currentIndex > 0)
-            {
-                SendCustomEventDelayedFrames(nameof(ProcessNextCollider), DELAY_FRAMES);
-            }
-            else
-            {
-                UpdateUI();
-                SendCustomEventDelayedSeconds(nameof(StartCountCycle), UPDATE_INTERVAL_SECONDS);
-            }
-        }
-
-
-        private int GetPlayerCountInCollider(int index)
-        {
-            if (!Utilities.IsValid(colliders[index])) { return -1; }
+            if (!Utilities.IsValid(colliders[cIdx])) { return -1; }
 
             int count = 0;
-            Transform colliderTransform = colliders[index].transform;
 
-            for (int j = 0; j < totalCount; j++)
+            for (int pIdx = 0; pIdx < totalCount; pIdx++)
             {
-                if (!Utilities.IsValid(players[j]) || !players[j].IsValid()) { continue; }
+                if (!Utilities.IsValid(players[pIdx]) || !players[pIdx].IsValid()) { continue; }
 
-                if (IsInCollider(colliderTransform, players[j]))
+                if (IsInCollider(cIdx, pIdx))
                 {
-                    if (players[j].isLocal)
+                    if (players[pIdx].isLocal)
                     {
                         count += 1001;
                     }
@@ -130,27 +169,35 @@ namespace ChuChuGimmicks.DocoCounter
         }
 
 
-        private bool IsInCollider(Transform collider, VRCPlayerApi player)
+        private bool IsInCollider(int colIndex, int playerIndex)
         {
-            Vector3 colliderPos    = collider.position;
-            Quaternion colliderRot = collider.rotation;
+            Vector3 playerPos = playerPositions[playerIndex];
 
-            Vector3 colliderSize   = collider.localScale; // lossyScaleは使わず運用でカバー
+            // コライダーを覆う球を用いた大まかな判定
+            Vector3 colPos = colliderPositions[colIndex];
+            Vector3 delta = playerPos - colPos;
+            if (delta.sqrMagnitude > colliderRadiusSq[colIndex])
+            {
+                ChuDebug("OUTSIDE SPHERE");
+                return false;
+            }
 
-            Vector3 playerPos = player.GetPosition();
-            playerPos.y += HEIGHT_OFFSET;
+            // プレイヤーのワールド座標をコライダーのローカル座標に変換することによる厳密な判定
+            Vector3 localPos = colliderMatrices[colIndex].MultiplyPoint3x4(playerPos);
+            if (Mathf.Abs(localPos.x) >= 0.5f ||
+                Mathf.Abs(localPos.y) >= 0.5f ||
+                Mathf.Abs(localPos.z) >= 0.5f)
+            {
+                ChuDebug("OUTSIDE COLLIDER");
+                return false;
+            }
 
-            // ワールド空間のプレイヤー座標をコライダーのローカル空間に変換
-            Vector3 localPlayerPos = Quaternion.Inverse(colliderRot) * (playerPos - colliderPos);
-
-            // ローカル空間でAABBチェック（y座標は少し上を基準に）
-            return Mathf.Abs(localPlayerPos.x) <= colliderSize.x / 2 &&
-                   Mathf.Abs(localPlayerPos.y) <= colliderSize.y / 2 &&
-                   Mathf.Abs(localPlayerPos.z) <= colliderSize.z / 2;
+            ChuDebug("INSIDE COLLIDER");
+            return true;
         }
 
 
-        private void UpdateUI()
+        private void UpdateBoard(int[] counts, int totalCount)
         {
             for (int i = 0; i < boards.Length; i++)
             {

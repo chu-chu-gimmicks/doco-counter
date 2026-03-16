@@ -54,14 +54,16 @@ namespace ChuChuGimmicks.DocoCounter
                 {
                     if (!Utilities.IsValid(counts[i])) { continue; }
 
-                    bool isLocalPlayerHere = counts[i] >= 1001;
+                    bool isLocalPlayerHere = counts[i] >= 1000;
+
+                    int count = isLocalPlayerHere ? counts[i] % 1000 : counts[i];
+                    countTexts[i].text = $"{count}";
+
                     int spriteIdx = isLocalPlayerHere ? 1 : 0;
                     if (icons[i].sprite != iconSprites[spriteIdx])
                     {
                         icons[i].sprite = iconSprites[spriteIdx];
                     }
-
-                    countTexts[i].text = $"{counts[i] % 1000}";
                 }
                 else
                 {
