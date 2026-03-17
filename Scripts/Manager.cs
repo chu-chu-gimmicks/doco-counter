@@ -29,7 +29,7 @@ namespace ChuChuGimmicks.DocoCounter
         private bool isInitialized = false;
         private bool isPending = false;
 
-        private int[] counts = null;
+        private int[] counts;
         private int totalCount = 0;
 
         // コライダーのワールド座標系からローカル座標系への変換用行列
@@ -51,6 +51,7 @@ namespace ChuChuGimmicks.DocoCounter
             isPending = true;
 
             if (!Utilities.IsValid(colliders) || colliders.Length == 0) { return; }
+            if (!Utilities.IsValid(boards) || boards.Length == 0) { return; }
 
             if (!isInitialized)
             {
@@ -154,13 +155,10 @@ namespace ChuChuGimmicks.DocoCounter
 
                 if (IsInCollider(cIdx, pIdx))
                 {
+                    count++;
                     if (players[pIdx].isLocal)
                     {
-                        count += 1001;
-                    }
-                    else
-                    {
-                        count++;
+                        count += 1000;
                     }
                 }
             }
