@@ -1,59 +1,77 @@
-﻿
-using TMPro;
+
 using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
 using VRC.Udon;
 
-namespace dokoniru_counter
+namespace ChuChuGimmicks.DocoCounter
 {
+    [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class Board : UdonSharpBehaviour
     {
-        [SerializeField] private int max = 0;
-        [SerializeField] private TextMeshProUGUI tName;
-        [SerializeField] private TextMeshProUGUI tCount;
-        [SerializeField] private TextMeshProUGUI tTotal;
+        [SerializeField] private UnityEngine.UI.Image[] icons;
+        [SerializeField] private Sprite[] iconSprites;
+
+        [SerializeField] private TMPro.TextMeshProUGUI[] nameTexts;
+        [SerializeField] private TMPro.TextMeshProUGUI[] countTexts;
+        [SerializeField] private TMPro.TextMeshProUGUI totalCountText;
+
+
 
 
         public void SetName(GameObject[] colliders)
         {
-            if (tName == null) { return; }
+            if (!Utilities.IsValid(nameTexts) || nameTexts.Length == 0) { return; }
+            if (!Utilities.IsValid(colliders) || colliders.Length == 0) { return; }
 
-            tName.text = string.Empty;
-            tCount.text = string.Empty;
-
-            for (int i = 0; i < max; i++)
+            for (int i = 0; i < nameTexts.Length; i++)
             {
-                if (i < colliders.Length && colliders[i] != null)
+                if (!Utilities.IsValid(nameTexts[i])) { continue; }
+
+                if (i < colliders.Length)
                 {
-                    tName.text += $"{colliders[i].name}　\n";
+                    if (!Utilities.IsValid(colliders[i])) { continue; }
+                    nameTexts[i].text = colliders[i].name;
                 }
                 else
                 {
-                    tName.text += "　\n";
+                    nameTexts[i].text = string.Empty;
                 }
             }
         }
 
 
-        public void UpdateDisplay(int[] counts, int countOfAllPlayers)
+        public void UpdateUI(int[] counts, int totalCount)
         {
-            if (tCount == null) { return; }
+            if (!Utilities.IsValid(countTexts) || countTexts.Length == 0) { return; }
+            if (!Utilities.IsValid(counts)     || counts.Length == 0)     { return; }
 
-            tCount.text = string.Empty;
-
-            for (int i = 0; i < max; i++)
+            for (int i = 0; i < countTexts.Length; i++)
             {
-                if (i < counts.Length && counts[i] >= 0)
+                if (!Utilities.IsValid(countTexts[i])) { return; }
+
+                if (i >= 0 && i < counts.Length)
                 {
-                    tCount.text += $"　{counts[i]}\n";
+                    if (!Utilities.IsValid(counts[i])) { continue; }
+
+                    bool isLocalPlayerHere = counts[i] >= 1000;
+
+                    int count = isLocalPlayerHere ? counts[i] % 1000 : counts[i];
+                    countTexts[i].text = $"{count}";
+
+                    int spriteIdx = isLocalPlayerHere ? 1 : 0;
+                    if (icons[i].sprite != iconSprites[spriteIdx])
+                    {
+                        icons[i].sprite = iconSprites[spriteIdx];
+                    }
                 }
                 else
                 {
-                    tCount.text += "　\n";
+                    countTexts[i].text = string.Empty;
                 }
             }
-            tTotal.text = $"{countOfAllPlayers}";
+
+            totalCountText.text = $"{totalCount}";
         }
     }
 }
